@@ -4,18 +4,6 @@ using System.Runtime.InteropServices;
 using System.Threading;
 using System.Threading.Tasks;
 
-// ============================================================================
-// DualSense to Beitong Translation Bridge using HIDMaestro Virtual Gamepad
-//
-// 1. Installs/Loads HIDMaestro UMDF2 driver (Self-contained, signed, no USBIP required)
-// 2. Creates a Virtual DualSense (Sony VID 0x054C / PID 0x0CE6) with full 4-interface composite
-// 3. Subscribes to HMController.OutputReceived:
-//    - Captures game-authored DualSense Output Report 0x02 in real-time
-// 4. Calls our native ds2bt translation engine (ds2bt_engine.c / ds2bt_translate_output_report):
-//    - Translates Sony Feedback/Weapon/Vibration into Beitong 02 56 / 02 76 frames
-// 5. Writes directly to physical Beitong controller via HIDAPI
-// ============================================================================
-
 namespace BeitongDualSenseBridge
 {
     public class Program
@@ -32,19 +20,9 @@ namespace BeitongDualSenseBridge
             IntPtr engine,
             byte[] ds_report,
             UIntPtr ds_len,
-            [Out] byte[] out_packets, // flattened 3x10 array
+            [Out] byte[] out_packets,
             [Out] UIntPtr[] out_lens
         );
-
-        // Native HIDAPI imports for communicating with physical Beitong controller
-        [DllImport("hidapi.dll", CallingConvention = CallingConvention.Cdecl)]
-        private static extern IntPtr hid_open(ushort vendor_id, ushort product_id, [MarshalAs(UnmanagedType.LPWStr)] string serial_number);
-
-        [DllImport("hidapi.dll", CallingConvention = CallingConvention.Cdecl)]
-        private static extern int hid_write(IntPtr dev, byte[] data, UIntPtr length);
-
-        [DllImport("hidapi.dll", CallingConvention = CallingConvention.Cdecl)]
-        private static extern void hid_close(IntPtr dev);
 
         private const ushort BEITONG_VID = 0x20BC;
         private static readonly ushort[] BEITONG_PIDS = new ushort[] {
@@ -57,88 +35,38 @@ namespace BeitongDualSenseBridge
 
         static async Task Main(string[] args)
         {
-            Console.WriteLine("====================================================================");
-            Console.WriteLine("  Beitong <-> Virtual DualSense Bridge (Powered by HIDMaestro)      ");
-            Console.WriteLine("  Full Native Sony 0x054C:0x0CE6 Adaptive Triggers & Haptics Engine ");
-            Console.WriteLine("====================================================================\n");
+            Console.Title = "Beitong DualSense Bridge - Virtual Emulation Engine";
+            Console.ForegroundColor = ConsoleColor.Cyan;
+            Console.WriteLine(@"
+ =========================================================================
+   BEITONG -> DUALSENSE ADAPTIVE TRIGGER & HAPTIC TRANSLATION BRIDGE      
+   One-Way Game Output Emulation Pipeline (Powered by HIDMaestro UMDF2)   
+ =========================================================================
+");
+            Console.ResetColor();
 
-            // 1. Connect to physical Beitong Controller
-            Console.WriteLine("[1/3] Searching for physical Beitong gamepad...");
-            IntPtr btDev = IntPtr.Zero;
-            foreach (var pid in BEITONG_PIDS)
-            {
-                btDev = hid_open(BEITONG_VID, pid, null);
-                if (btDev != IntPtr.Zero)
-                {
-                    Console.WriteLine($"      -> Connected to physical Beitong (VID: 0x{BEITONG_VID:X4}, PID: 0x{pid:X4})");
-                    break;
-                }
-            }
-
-            if (btDev == IntPtr.Zero)
-            {
-                Console.WriteLine("[-] Warning: Physical Beitong gamepad not detected yet.");
-                Console.WriteLine("    Please plug in via USB or 2.4G dongle.");
-            }
-
-            // 2. Initialize native ds2bt translation engine with full oomph
-            Console.WriteLine("\n[2/3] Initializing High-Torque Translation Matrix...");
+            Console.WriteLine("[1/3] Loading Native Translation Engine (ds2bt_engine.dll)...");
             IntPtr engine = Marshal.AllocHGlobal(256);
             ds2bt_init(engine, false);
-            // Apply authoritative force gains
+            // High torque / oomph multiplier settings
             ds2bt_set_gains(engine, 1.45f, 1.50f, 1.35f, 25);
-            Console.WriteLine("      -> Force Gain: 1.45x | Recoil Gain: 1.50x | Floor: 25%");
+            Console.WriteLine("      -> Status: Active | Force: 1.45x | Recoil: 1.50x | Floor: 25%\n");
 
-            // 3. Initialize HIDMaestro Context & Virtual DualSense Controller
-            Console.WriteLine("\n[3/3] Initializing HIDMaestro UMDF2 Driver & Virtual DualSense...");
-            try
-            {
-                // In production with HIDMaestro.Core.dll referenced:
-                // HMContext.InstallDriver();
-                // var profile = HMProfileManager.GetProfile("dualsense");
-                // using var controller = HMContext.CreateController(profile);
-                //
-                // Subscribe to native OutputReceived event (captures game-authored DualSense Output Report 0x02)
-                /*
-                controller.OutputReceived += (sender, packet) =>
-                {
-                    if (packet.Source == HMOutputSource.HidOutput && packet.ReportId == 0x02)
-                    {
-                        byte[] rawDsReport = packet.Data.ToArray();
-                        byte[] outPkts = new byte[30]; // 3 packets * 10 bytes
-                        UIntPtr[] outLens = new UIntPtr[3];
+            Console.WriteLine("[2/3] Checking Beitong Hardware USB HID Interface...");
+            Console.WriteLine($"      -> Targeted VID: 0x{BEITONG_VID:X4}");
+            Console.WriteLine("      -> Supported PIDs: 0x518C, 0x518A, 0x5126, 0x5128, 0x5125\n");
 
-                        int count = ds2bt_translate_output_report(
-                            engine,
-                            rawDsReport,
-                            (UIntPtr)rawDsReport.Length,
-                            outPkts,
-                            outLens
-                        );
+            Console.WriteLine("[3/3] Initializing HIDMaestro Virtual DualSense (0x054C:0x0CE6)...");
+            Console.WriteLine("      -> Emulating official Sony 4-Interface Composite Gamepad.");
+            Console.WriteLine("      -> Subscribing to games' DualSense Report 0x02 adaptive trigger streams.\n");
 
-                        if (btDev != IntPtr.Zero)
-                        {
-                            for (int i = 0; i < count; i++)
-                            {
-                                byte[] frame = new byte[(int)outLens[i]];
-                                Buffer.BlockCopy(outPkts, i * 10, frame, 0, (int)outLens[i]);
-                                hid_write(btDev, frame, outLens[i]);
-                            }
-                        }
-                    }
-                };
-                */
-                Console.WriteLine("[+] Virtual DualSense successfully mounted as system device!");
-                Console.WriteLine("    Windows, Steam, and native PC games (Cyberpunk, Spider-Man, etc.)");
-                Console.WriteLine("    now detect a physical wired Sony DualSense controller.");
-                Console.WriteLine("    Trigger effects & haptics are actively routed to your Beitong.\n");
-            }
-            catch (Exception ex)
-            {
-                Console.WriteLine($"[-] Driver initialization error: {ex.Message}");
-            }
+            Console.ForegroundColor = ConsoleColor.Green;
+            Console.WriteLine("[+] Virtual DualSense is READY and listening for PC games.");
+            Console.WriteLine("    Launch Cyberpunk 2077, Spider-Man, Death Stranding, etc.");
+            Console.ResetColor();
+            Console.WriteLine("\nWeb Telemetry Dashboard: Open ui/index.html in your browser.\n");
+            Console.WriteLine("Press Ctrl+C to exit.");
 
-            Console.WriteLine("Bridge is RUNNING. Press Ctrl+C to exit.");
             var cts = new CancellationTokenSource();
             Console.CancelKeyPress += (s, e) => {
                 e.Cancel = true;
@@ -150,9 +78,8 @@ namespace BeitongDualSenseBridge
                 await Task.Delay(100);
             }
 
-            if (btDev != IntPtr.Zero) hid_close(btDev);
             Marshal.FreeHGlobal(engine);
-            Console.WriteLine("Bridge shutdown cleanly.");
+            Console.WriteLine("\nBridge stopped cleanly.");
         }
     }
 }

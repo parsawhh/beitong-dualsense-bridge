@@ -2,11 +2,16 @@ name: Build and Release Windows Binaries
 
 on:
   push:
+    tags:
+      - 'v*'
     branches: [ main ]
   workflow_dispatch:
 
+permissions:
+  contents: write
+
 jobs:
-  build-windows:
+  build-and-release:
     runs-on: windows-latest
     steps:
       - name: Checkout repository
@@ -19,17 +24,29 @@ jobs:
         run: |
           cl /O2 /LD /W3 ds2bt_engine.c /Fe:ds2bt_engine.dll
 
-      - name: Build Native Linux Tests
+      - name: Build Native Tests
         shell: bash
         run: |
           clang -O2 ds2bt_engine.c test_engine.c -o test_engine
           ./test_engine
 
-      - name: Upload Windows Binaries Artifacts
-        uses: actions/upload-artifact@v4
+      - name: Prepare Release Archive
+        shell: bash
+        run: |
+          mkdir -p release_package
+          cp ds2bt_engine.dll release_package/
+          cp -r ui release_package/
+          cp README.md ARCHITECTURE_RESEARCH.md HIDMaestroBridge.cs release_package/
+          cd release_package && tar -czvf ../beitong-dualsense-bridge-windows-x64.tar.gz *
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        if: startsWith(github.ref, 'refs/tags/')
         with:
-          name: beitong-dualsense-windows-build
-          path: |
-            *.dll
-            *.exe
-            ui/
+          files: |
+            beitong-dualsense-bridge-windows-x64.tar.gz
+            ds2bt_engine.dll
+          name: Release ${{ github.ref_name }}
+          draft: false
+          prerelease: false
+          generate_release_notes: true

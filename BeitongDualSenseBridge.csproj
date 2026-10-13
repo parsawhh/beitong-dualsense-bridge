@@ -10,9 +10,4 @@
     <RuntimeIdentifier>win-x64</RuntimeIdentifier>
   </PropertyGroup>
 
-  <ItemGroup>
-    <PackageReference Include="hidapi.net" Version="2.1.3" />
-    <PackageReference Include="HIDMaestro.Core" Version="1.11.0" />
-  </ItemGroup>
-
 </Project>

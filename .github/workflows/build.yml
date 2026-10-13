@@ -12,23 +12,12 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      - name: Setup MSVC & Clang
+      - name: Setup MSVC Environment
         uses: ilammy/msvc-dev-cmd@v1
 
-      - name: Build Translation Engine DLL
+      - name: Build Translation Engine DLL (MSVC cl)
         run: |
-          clang -O3 -shared ds2bt_engine.c -o ds2bt_engine.dll -Wl,/DEF:ds2bt_engine.def -Wl,/NOENTRY -nostdlib -lkernel32
-        continue-on-error: true
-
-      - name: Build In-Process Proxy DLL
-        run: |
-          clang -O3 -shared hidapi_proxy.c ds2bt_engine.c -o hidapi.dll -lhid -lsetupapi
-        continue-on-error: true
-
-      - name: Build Standalone Feeder
-        run: |
-          clang -O3 dualsense_feeder.c ds2bt_engine.c hidhide_cloak.c -o dualsense_feeder.exe -lsetupapi -lhid
-        continue-on-error: true
+          cl /O2 /LD /W3 ds2bt_engine.c /Fe:ds2bt_engine.dll
 
       - name: Build Native Linux Tests
         shell: bash

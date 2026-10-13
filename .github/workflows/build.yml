@@ -1,0 +1,46 @@
+name: Build and Release Windows Binaries
+
+on:
+  push:
+    branches: [ main ]
+  workflow_dispatch:
+
+jobs:
+  build-windows:
+    runs-on: windows-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup MSVC & Clang
+        uses: ilammy/msvc-dev-cmd@v1
+
+      - name: Build Translation Engine DLL
+        run: |
+          clang -O3 -shared ds2bt_engine.c -o ds2bt_engine.dll -Wl,/DEF:ds2bt_engine.def -Wl,/NOENTRY -nostdlib -lkernel32
+        continue-on-error: true
+
+      - name: Build In-Process Proxy DLL
+        run: |
+          clang -O3 -shared hidapi_proxy.c ds2bt_engine.c -o hidapi.dll -lhid -lsetupapi
+        continue-on-error: true
+
+      - name: Build Standalone Feeder
+        run: |
+          clang -O3 dualsense_feeder.c ds2bt_engine.c hidhide_cloak.c -o dualsense_feeder.exe -lsetupapi -lhid
+        continue-on-error: true
+
+      - name: Build Native Linux Tests
+        shell: bash
+        run: |
+          clang -O2 ds2bt_engine.c test_engine.c -o test_engine
+          ./test_engine
+
+      - name: Upload Windows Binaries Artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: beitong-dualsense-windows-build
+          path: |
+            *.dll
+            *.exe
+            ui/
